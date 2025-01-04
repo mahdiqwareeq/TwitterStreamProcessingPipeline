@@ -61,7 +61,7 @@ A complete data pipeline for processing, transforming, and making stream of twee
 - **Data Processing**: PyMongo
 
 ### Web app Frontend
-- **Technologies**: HTML5, JavaScript
+- **Technologies**: HTML, JavaScript
 - **Libraries**: Chart.js, Leaflet.js
 
 ## Prerequisites
