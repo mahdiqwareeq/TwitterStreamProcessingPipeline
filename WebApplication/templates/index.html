@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Tweets Analyzer</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            font-family: Arial, sans-serif;
+        }
+        .container {
+            display: flex;
+            height: 100vh;
+        }
+        .sidebar {
+            width: 65%;
+            background-color: #f0f0f0;
+            padding: 20px;
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
+        }
+        .map-container {
+            width: 35%;
+            position: relative;
+        }
+        #map {
+            height: 100%;
+            width: 100%;
+        }
+        #search-container {
+            display: flex;
+            margin-bottom: 10px;
+        }
+        #search-input {
+            flex-grow: 1;
+            padding: 10px;
+            font-size: 16px;
+        }
+        #search-button {
+            padding: 10px 15px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            cursor: pointer;
+            margin-left: 10px;
+        }
+        #search-stats {
+            background-color: #f4f4f4;
+            padding: 10px;
+            margin-bottom: 10px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        #sentiment-container {
+            height: 300px;
+            width: 100%;
+            margin-top: 10px;
+            margin-bottom: 10px;
+        }
+        #sentiment-gauge {
+            max-height: 300px;
+            max-width: 300px;
+            margin: 0 auto;
+        }
+        .trend-toggle {
+            display: flex;
+            justify-content: center;
+            margin-bottom: 10px;
+        }
+        .trend-toggle button {
+            margin: 0 10px;
+            padding: 5px 10px;
+            cursor: pointer;
+        }
+        .trend-toggle button.active {
+            background-color: #4CAF50;
+            color: white;
+        }
+        .date-range-wrapper {
+            display: flex;
+            align-items: flex-end;
+            position: relative;
+        }
+        .date-input-group {
+            flex-grow: 1;
+            margin-right: 10px;
+        }
+        .clear-dates-btn {
+            background: none;
+            border: none;
+            color: #888;
+            font-size: 24px;
+            cursor: pointer;
+            padding: 0 5px;
+            display: none;
+            margin-bottom: 8px;
+        }
+        .date-range-wrapper:hover .clear-dates-btn,
+        .clear-dates-btn.visible {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="sidebar">
+            <div id="search-container">
+                <input type="text" id="search-input" placeholder="Search tweets...">
+                <button id="search-button">Search</button>
+            </div>
+            <div id="search-stats"></div>
+            <div class="trend-toggle">
+                <button id="hourly-btn" class="active">Hourly Trend</button>
+                <button id="daily-btn">Daily Trend</button>
+            </div>
+            <div id="date-range-container">
+                <div class="date-input-group">
+                    <label for="start-date">Start Date:</label>
+                    <input type="text" id="start-date" placeholder="Select start date">
+                </div>
+                <div class="date-input-group">
+                    <label for="end-date">End Date:</label>
+                    <input type="text" id="end-date" placeholder="Select end date">
+                </div>
+                <button id="clear-dates" class="clear-dates-btn" type="button">
+                    <i class="clear-icon">×</i>
+                </button>
+            </div>
+            <div id="trend-container">
+                <canvas id="trend-chart"></canvas>
+            </div>
+            <div id="sentiment-container">
+                <canvas id="sentiment-gauge"></canvas>
+            </div>
+        </div>
+        <div class="map-container">
+            <div id="map"></div>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
+    <script>
+        const map = L.map('map').setView([0, 0], 2);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors'
+        }).addTo(map);
+
+        const searchInput = document.getElementById('search-input');
+        const searchButton = document.getElementById('search-button');
+        const searchStatsEl = document.getElementById('search-stats');
+        const hourlyBtn = document.getElementById('hourly-btn');
+        const dailyBtn = document.getElementById('daily-btn');
+        
+        let markers = [];
+        let trendChart = null;
+        let sentimentGauge = null;
+
+        const startDatePicker = flatpickr("#start-date", {
+            dateFormat: "Y-m-d",
+            maxDate: "today",
+            onChange: function(selectedDates, dateStr, instance) {
+                endDatePicker.set('minDate', dateStr);
+                updateClearButton();
+                if (endDatePicker.selectedDates.length > 0) {
+                    performSearch();
+                }
+            }
+        });
+
+        const endDatePicker = flatpickr("#end-date", {
+            dateFormat: "Y-m-d",
+            maxDate: "today",
+            onChange: function(selectedDates, dateStr, instance) {
+                startDatePicker.set('maxDate', dateStr);
+                updateClearButton();
+                if (startDatePicker.selectedDates.length > 0) {
+                    performSearch();
+                }
+            }
+        });
+        
+        const clearDatesBtn = document.getElementById('clear-dates');
+        clearDatesBtn.addEventListener('click', function() {
+            startDatePicker.clear();
+            endDatePicker.clear();
+
+            startDatePicker.set('maxDate', 'today');
+            endDatePicker.set('minDate', null);
+
+            updateClearButton();
+
+            if (searchInput.value.trim()) {
+                performSearch();
+            }
+        });
+
+        function updateClearButton() {
+            const startDate = startDatePicker.selectedDates[0];
+            const endDate = endDatePicker.selectedDates[0];
+
+            if (startDate || endDate) {
+                clearDatesBtn.classList.add('visible');
+            } else {
+                clearDatesBtn.classList.remove('visible');
+            }
+        }
+        
+        function performSearch() {
+            const searchTerm = searchInput.value.trim();
+            const trendStartDate = startDatePicker.selectedDates[0];
+            const trendEndDate = endDatePicker.selectedDates[0];
+            
+            if (!searchTerm && (!trendStartDate || !trendEndDate)) {
+                searchInput.classList.add('error');
+                searchInput.setAttribute('placeholder', 'Please enter a search term or pick a time range');
+                
+                return;
+            }
+            
+            const searchPayload = {};
+            
+            if (searchTerm) {
+                searchPayload.search_term = searchTerm;
+            }
+
+            if (trendStartDate && trendEndDate) {
+                searchPayload.trend_start_date = trendStartDate.toISOString().split('T')[0];
+                searchPayload.trend_end_date = trendEndDate.toISOString().split('T')[0];
+            }
+
+            markers.forEach(marker => map.removeLayer(marker));
+            markers = [];
+
+            searchButton.disabled = true;
+            searchButton.textContent = 'Searching...';
+
+            fetch('/search', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(searchPayload)
+            })
+            .then(response => response.json())
+            .then(searchData => {
+                searchStatsEl.innerHTML = `
+                    <div><strong>Total Tweets:</strong> ${searchData.total_tweets}</div>
+                    <div><strong>Unique Users:</strong> ${searchData.unique_users}</div>
+                    <div><strong>Date Range:</strong> 
+                        ${searchData.date_range.start ? 
+                            `${new Date(searchData.date_range.start).toLocaleDateString()} -
+                             ${new Date(searchData.date_range.end).toLocaleDateString()}` : 
+                            'N/A'}
+                    </div>
+                `;
+
+                searchData.locations.forEach((location, index) => {
+                    if (location.latitude && location.longitude) {
+                        const marker = L.marker([location.latitude, location.longitude])
+                            .addTo(map)
+                            .bindPopup(`
+                                <b>@${location.user_name}</b><br>
+                                Tweet: ${location.text}<br>
+                                Created: ${location.created_at}<br>
+                                Hashtags: ${location.hashtags ? location.hashtags.join(', ') : 'None'}
+                            `);
+                        markers.push(marker);
+                        // Zoom to first result
+                        if (index === 0) {
+                            map.setView([location.latitude, location.longitude], 2);
+                        }
+                    }
+                });
+                
+                updateTrends(searchData.trends);
+                updateSentiment(searchData.sentiment.positive_percentage);
+            })
+            .catch(error => {
+                console.error('Search error:', error);
+                alert('Error performing search');
+            })
+            .finally(() => {
+                searchButton.disabled = false;
+                searchButton.textContent = 'Search';
+            });
+        }
+
+        function updateTrends(trends) {
+            const trendType = hourlyBtn.classList.contains('active') ? 'hourly' : 'daily';
+            const trendData = trendType === 'hourly' ? trends.hourly : trends.daily;
+            
+            const labels = trendType === 'hourly'
+                ? trendData.map(item => `${item.date} ${item.hour}:00`)
+                : trendData.map(item => item.date);
+            
+            const data = trendData.map(item => item.tweet_count);
+            if (trendChart) {
+                trendChart.destroy();
+            }
+
+            const ctx = document.getElementById('trend-chart').getContext('2d');
+            trendChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: `${trendType.charAt(0).toUpperCase() + trendType.slice(1)} Tweet Trend`,
+                        data: data,
+                        borderColor: 'rgba(75, 192, 192, 1)',
+                        backgroundColor: 'rgba(75, 192, 192, 0.2)',
+                        fill: true,
+                        tension: 0.4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: 'Number of Tweets'
+                            }
+                        },
+                        x: {
+                            title: {
+                                display: true,
+                                text: trendType === 'hourly' ? 'Date and Hour' : 'Date'
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        function updateSentiment(positivePercentage) {
+            if (sentimentGauge) {
+                sentimentGauge.destroy();
+            }
+
+            const ctx = document.getElementById('sentiment-gauge').getContext('2d');
+            const config = {
+                type: 'doughnut',
+                data: {
+                    labels: ['Negative', 'Positive'],
+                    datasets: [{
+                        data: [100 - positivePercentage, positivePercentage],
+                        backgroundColor: ['#F44336', '#4CAF50'],
+                        circumference: 180,
+                        rotation: 270
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        title: {
+                            display: true,
+                            text: 'Tweet Sentiment'
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return `${context.label}: ${context.formattedValue}%`;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
+            sentimentGauge = new Chart(ctx, config);
+        }
+
+        searchButton.addEventListener('click', performSearch);
+        searchInput.addEventListener('keyup', (event) => {
+            if (event.key === 'Enter') {
+                performSearch();
+            }
+        });
+
+        hourlyBtn.addEventListener('click', () => {
+            hourlyBtn.classList.add('active');
+            dailyBtn.classList.remove('active');
+            performSearch();
+        });
+
+        dailyBtn.addEventListener('click', () => {
+            dailyBtn.classList.add('active');
+            hourlyBtn.classList.remove('active');
+            performSearch();
+        });
+        
+        const styleTag = document.createElement('style');
+        styleTag.textContent = `
+            #date-range-container {
+                display: flex;
+                justify-content: space-between;
+                margin-bottom: 15px;
+            }
+            .date-input-group {
+                display: flex;
+                flex-direction: column;
+                width: 48%;
+            }
+            .date-input-group input {
+                padding: 8px;
+                margin-top: 5px;
+            }
+        `;
+        document.head.appendChild(styleTag);
+        
+    </script>
+</body>
+</html>
