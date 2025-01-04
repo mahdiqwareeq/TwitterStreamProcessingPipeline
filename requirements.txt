@@ -1,5 +1,4 @@
 kafka-python
 Flask
 pymongo
-folium
 python-dotenv
