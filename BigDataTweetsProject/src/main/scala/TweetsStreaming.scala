@@ -55,8 +55,8 @@ object TweetsStreaming  {
       .withColumn("created_at", regexp_replace(col("created_at"), "^[A-Za-z]+ ", ""))
       .withColumn("created_at", to_timestamp(col("created_at"), "MMM dd HH:mm:ss Z yyyy"))
       .withColumn("hashtags", col("entities.hashtags.text"))
-      .withColumn("longitude", when($"geo".isNotNull, element_at(col("geo.coordinates"), 1)))
-      .withColumn("latitude", when($"geo".isNotNull, element_at(col("geo.coordinates"), 2)))
+      .withColumn("latitude", when($"geo".isNotNull, element_at(col("geo.coordinates"), 1)))
+      .withColumn("longitude", when($"geo".isNotNull, element_at(col("geo.coordinates"), 2)))
 
     // Create Bloom Filter
     val expectedEntries = 100000L  // Expected number of unique tweets
