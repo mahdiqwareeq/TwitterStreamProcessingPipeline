@@ -38,7 +38,7 @@ class JSONToKafkaProducer:
     def stream_to_kafka(self, interval_seconds: int = 60):
         records = self.read_file()        
         recordsCount = len(records)
-        chunkSize = 200
+        chunkSize = 100
         for i in range(0, recordsCount, chunkSize):
             chunkSize = min(chunkSize, recordsCount - i)
             messagesToSent = records[i:i+chunkSize]                
@@ -64,7 +64,7 @@ def main():
     producer = JSONToKafkaProducer(JSON_FILE_PATH)
     
     # Start streaming (Stream every 60 seconds)
-    producer.stream_to_kafka(interval_seconds=1)
+    producer.stream_to_kafka(interval_seconds=60)
 
 if __name__ == "__main__":
     main()
